@@ -1,9 +1,11 @@
 // Copyright (c) 2014-2016, XMOS Ltd, All rights reserved
+// Portions Copyright (c) 2024, PADL Software Pty Ltd, All rights reserved
 
 #include "uart.h"
 #include <xs1.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <print.h>
 #include <xscope.h>
 #include "xassert.h"
@@ -35,12 +37,17 @@ static inline int parity32(unsigned x, uart_parity_t parity)
   return (x & 1);
 }
 
-static inline int buffer_full(int rdptr, int wrptr, int buf_length)
+static inline int buffer_full_n(int rdptr, int wrptr, int buf_length, size_t n)
 {
-  wrptr++;
-  if (wrptr == buf_length)
-    wrptr = 0;
-  return (wrptr == rdptr);
+  do {
+    wrptr++;
+    if (wrptr == buf_length)
+      wrptr = 0;
+    if (wrptr == rdptr)
+      return 1;
+  } while (n--);
+
+  return 0;
 }
 
 static inline void init_transmit(size_t &rdptr, size_t &wrptr,
@@ -69,16 +76,18 @@ static inline void init_transmit(size_t &rdptr, size_t &wrptr,
 [[always_inline]]
 static inline int uart_tx_write(const static unsigned buf_length,
                                 uint8_t buffer[buf_length],
-                                const uint8_t data,
+                                const size_t data_length,
+                                const uint8_t data[data_length],
                                 size_t &rdptr, size_t &wrptr,
                                 enum uart_tx_state &state, int &t,
                                 int &clock_sync_required)
 {
-  if (buffer_full(rdptr, wrptr, buf_length))
+  if (buffer_full_n(rdptr, wrptr, buf_length, data_length))
     return 1;
 
-  buffer[wrptr] = data;
-  wrptr++;
+  memcpy(&buffer[wrptr], data, data_length);
+  wrptr += data_length;
+
   if (wrptr == buf_length) {
     wrptr = 0;
   }
@@ -188,31 +197,25 @@ void uart_tx_buffered(server interface uart_tx_buffered_if i,
     break;
     // Handle client interaction with the component
     case i.write(uint8_t data) -> int buffer_was_full:
-      buffer_was_full = uart_tx_write(buf_length, buffer, data,
+      buffer_was_full = uart_tx_write(buf_length, buffer, sizeof(data), (data, uint8_t[]),
                                       rdptr, wrptr, state, t,
                                       clock_sync_required);
       break;
 
     case i.write16(uint16_t data) -> int buffer_was_full:
 #pragma loop unroll
-      for (size_t i = 0; i < sizeof(data); i++) {
-        buffer_was_full = uart_tx_write(buf_length, buffer, (data, uint8_t[])[i],
-                                        rdptr, wrptr, state, t,
-                                        clock_sync_required);
-        if (buffer_was_full)
-          break;
-      }
+      buffer_was_full = uart_tx_write(buf_length, buffer,
+                                      sizeof(data), (data, uint8_t[]),
+                                      rdptr, wrptr, state, t,
+                                      clock_sync_required);
       break;
 
     case i.write32(uint32_t data) -> int buffer_was_full:
 #pragma loop unroll
-      for (size_t i = 0; i < sizeof(data); i++) {
-        buffer_was_full = uart_tx_write(buf_length, buffer, (data, uint8_t[])[i],
-                                        rdptr, wrptr, state, t,
-                                        clock_sync_required);
-        if (buffer_was_full)
-          break;
-      }
+      buffer_was_full = uart_tx_write(buf_length, buffer,
+                                      sizeof(data), (data, uint8_t[]),
+                                      rdptr, wrptr, state, t,
+                                      clock_sync_required);
       break;
 
     case i.get_available_buffer_size(void) -> size_t available:
