@@ -231,6 +231,36 @@ typedef interface uart_tx_buffered_if {
   [[clears_notification]]
   int write(uint8_t data);
 
+  /** Write a word to a UART.
+   *
+   *  This function writes a word of data to a UART. It will place the
+   *  data in the output buffer queue to write and then return. If the
+   *  buffer is full then the data is discarded.
+   *
+   *  \param data  The data to write.
+   *
+   *  \returns     Zero if the write was successful. If the buffer was
+   *               full then the function will return 1 and the data is
+   *               discarded.
+   */
+  [[clears_notification]]
+  int write16(uint16_t data);
+
+  /** Write a word to a UART.
+   *
+   *  This function writes a word of data to a UART. It will place the
+   *  data in the output buffer queue to write and then return. If the
+   *  buffer is full then the data is discarded.
+   *
+   *  \param data  The data to write.
+   *
+   *  \returns     Zero if the write was successful. If the buffer was
+   *               full then the function will return 1 and the data is
+   *               discarded.
+   */
+  [[clears_notification]]
+  int write32(uint32_t data);
+
   /** Ready to transmit notification.
    *
    *  This notification will occur when the UART is ready to transmit (either

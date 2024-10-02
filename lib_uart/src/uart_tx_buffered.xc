@@ -66,6 +66,27 @@ static inline void init_transmit(size_t &rdptr, size_t &wrptr,
   state = OUTPUTTING_START_BIT;
 }
 
+[[always_inline]]
+static inline int uart_tx_write(const static unsigned buf_length,
+                                uint8_t buffer[buf_length],
+                                const uint8_t data,
+                                size_t &rdptr, size_t &wrptr,
+                                enum uart_tx_state &state, int &t,
+                                int &clock_sync_required)
+{
+  if (buffer_full(rdptr, wrptr, buf_length))
+    return 1;
+
+  buffer[wrptr] = data;
+  wrptr++;
+  if (wrptr == buf_length) {
+    wrptr = 0;
+  }
+
+  init_transmit(rdptr, wrptr, state, t, clock_sync_required);
+  return 0;
+}
+
 [[combinable]]
 void uart_tx_buffered(server interface uart_tx_buffered_if i,
                       server interface uart_config_if ?config,
@@ -167,18 +188,31 @@ void uart_tx_buffered(server interface uart_tx_buffered_if i,
     break;
     // Handle client interaction with the component
     case i.write(uint8_t data) -> int buffer_was_full:
-      if (buffer_full(rdptr, wrptr, buf_length)) {
-        buffer_was_full = 1;
-        return;
-      }
-      buffer_was_full = 0;
-      buffer[wrptr] = data;
-      wrptr++;
-      if (wrptr == buf_length) {
-        wrptr = 0;
-      }
+      buffer_was_full = uart_tx_write(buf_length, buffer, data,
+                                      rdptr, wrptr, state, t,
+                                      clock_sync_required);
+      break;
 
-      init_transmit(rdptr, wrptr, state, t, clock_sync_required);
+    case i.write16(uint16_t data) -> int buffer_was_full:
+#pragma loop unroll
+      for (size_t i = 0; i < sizeof(data); i++) {
+        buffer_was_full = uart_tx_write(buf_length, buffer, (data, uint8_t[])[i],
+                                        rdptr, wrptr, state, t,
+                                        clock_sync_required);
+        if (buffer_was_full)
+          break;
+      }
+      break;
+
+    case i.write32(uint32_t data) -> int buffer_was_full:
+#pragma loop unroll
+      for (size_t i = 0; i < sizeof(data); i++) {
+        buffer_was_full = uart_tx_write(buf_length, buffer, (data, uint8_t[])[i],
+                                        rdptr, wrptr, state, t,
+                                        clock_sync_required);
+        if (buffer_was_full)
+          break;
+      }
       break;
 
     case i.get_available_buffer_size(void) -> size_t available:

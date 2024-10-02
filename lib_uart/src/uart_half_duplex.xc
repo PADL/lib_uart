@@ -60,6 +60,29 @@ static inline void init_transmit(uint8_t buffer[buf_length],
     t += bit_time;
 }
 
+[[always_inline]]
+static inline int uart_tx_write(const static unsigned tx_buf_length,
+                                uint8_t tx_buffer[tx_buf_length],
+                                const uint8_t data,
+                                size_t &tx_rdptr, size_t &tx_wrptr,
+                                out port p_uart, enum uart_tx_state &tx_state,
+                                unsigned &bit_count, int &t, int bit_time,
+                                unsigned &byte)
+{
+    if (buffer_full(tx_rdptr, tx_wrptr, tx_buf_length))
+        return 1;
+
+    tx_buffer[tx_wrptr] = data;
+    tx_wrptr++;
+    if (tx_wrptr == tx_buf_length) {
+        tx_wrptr = 0;
+    }
+
+    init_transmit(tx_buffer, tx_buf_length, tx_rdptr,
+                  tx_wrptr, p_uart, tx_state, bit_count, t,
+                  bit_time, byte);
+    return 0;
+}
 
 static inline int add_to_buffer(uint8_t buffer[n], unsigned n,
                                 unsigned &rdptr, unsigned &wrptr,
@@ -208,23 +231,38 @@ void uart_half_duplex(server interface uart_tx_buffered_if i_tx,
                     }
 
                     case i_tx.write(uint8_t data) -> int buffer_was_full:
-                    {
-                        if (buffer_full(tx_rdptr, tx_wrptr, tx_buf_length))
-                        {
-                          buffer_was_full = 1;
-                          return;
-                        }
-                        buffer_was_full = 0;
-                        tx_buffer[tx_wrptr] = data;
-                        tx_wrptr++;
-                        if (tx_wrptr == tx_buf_length)
-                          tx_wrptr = 0;
-
-                        init_transmit(tx_buffer, tx_buf_length, tx_rdptr,
-                                tx_wrptr, p_uart, tx_state, bit_count, t,
-                                bit_time, byte);
+                        buffer_was_full = uart_tx_write(tx_buf_length, tx_buffer,
+                                                        data, tx_rdptr, tx_wrptr,
+                                                        p_uart, tx_state,
+                                                        bit_count, t, bit_time,
+                                                        byte);
                         break;
-                    }
+
+                    case i_tx.write16(uint16_t data) -> int buffer_was_full:
+#pragma loop unroll
+                        for (size_t i = 0; i < sizeof(data); i++) {
+                            buffer_was_full = uart_tx_write(tx_buf_length, tx_buffer,
+                                                            data, tx_rdptr, tx_wrptr,
+                                                            p_uart, tx_state,
+                                                            bit_count, t, bit_time,
+                                                            byte);
+                            if (buffer_was_full)
+                                break;
+                        }
+                        break;
+
+                    case i_tx.write32(uint32_t data) -> int buffer_was_full:
+#pragma loop unroll
+                        for (size_t i = 0; i < sizeof(data); i++) {
+                            buffer_was_full = uart_tx_write(tx_buf_length, tx_buffer,
+                                                            data, tx_rdptr, tx_wrptr,
+                                                            p_uart, tx_state,
+                                                            bit_count, t, bit_time,
+                                                            byte);
+                            if (buffer_was_full)
+                                break;
+                        }
+                        break;
 
                     case i_tx.get_available_buffer_size(void) -> size_t available:
                     {
